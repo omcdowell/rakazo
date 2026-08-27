@@ -43,13 +43,29 @@ const MAX_PARALLEL_SUBAGENTS = 4;
 // reasoning (e.g. google/gemini-3.7-flash). Keep a real level when model.reasoning
 // is set; plain models stay off.
 const REASONING_MODEL_THINKING_LEVEL: ModelThinkingLevel = "medium";
+const THINKING_LEVELS = new Set<ModelThinkingLevel>([
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
+function defaultReasoningThinkingLevel(): ModelThinkingLevel {
+  const configured = process.env.PI_DEFAULT_THINKING_LEVEL?.trim();
+  if (configured && THINKING_LEVELS.has(configured as ModelThinkingLevel)) {
+    return configured as ModelThinkingLevel;
+  }
+  return REASONING_MODEL_THINKING_LEVEL;
+}
 function thinkingLevelFor(
   model: Model<Api>,
   preferred?: ModelThinkingLevel | null,
 ): ModelThinkingLevel {
   if (!model.reasoning) return "off";
   if (preferred) return clampThinkingLevel(model, preferred);
-  return clampThinkingLevel(model, REASONING_MODEL_THINKING_LEVEL);
+  return clampThinkingLevel(model, defaultReasoningThinkingLevel());
 }
 // Pi forwards these names to OpenAI Responses, whose function-name contract is
 // ^[a-zA-Z0-9_-]+$ with a maximum length of 64 characters.
