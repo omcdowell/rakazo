@@ -4,10 +4,22 @@ import { loadRootEnv } from "@rakazo/core/node/load-root-env";
 loadRootEnv();
 
 import { serve } from "@hono/node-server";
+import { ensureHostPi } from "@rakazo/adapters";
 import { createApp } from "./app.js";
 import { loadEnv } from "./env.js";
 
 const env = loadEnv();
+// Host pi mode (RAKAZO_HOST_PI_DIR) must fail loudly at startup, not on the
+// first run; this also warms the catalog before the first models.list call.
+const hostPi = await ensureHostPi();
+for (const diagnostic of hostPi?.diagnostics ?? []) {
+  console.warn(`host pi: ${diagnostic}`);
+}
+if (hostPi) {
+  console.log(
+    `host pi models active: ${hostPi.catalog.length} models from ${hostPi.providerIds.size} providers`,
+  );
+}
 const { app, stop } = await createApp(env);
 const server = serve({ fetch: app.fetch, port: env.port }, () => {
   console.log(`rakazo api on http://127.0.0.1:${env.port}`);

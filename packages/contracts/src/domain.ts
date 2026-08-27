@@ -655,6 +655,8 @@ export const ModelCatalogEntrySchema = z.object({
   thinkingLevels: z.array(ThinkingLevelSchema).optional(),
   /** Catalog stand-in so a provider appears before the user enters a real model id. */
   placeholder: z.boolean().optional(),
+  /** Authenticated by the deployment host's pi CLI; no per-user connect step. */
+  hostAuthed: z.boolean().optional(),
 });
 export type ModelCatalogEntry = z.infer<typeof ModelCatalogEntrySchema>;
 
