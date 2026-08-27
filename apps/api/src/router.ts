@@ -32,6 +32,7 @@ import {
   displayBotWorkspacePath,
   type EncryptedSecretStore,
   enqueueTakeoverContinuation,
+  ensureHostPi,
   expireComputerControl,
   hasActiveComputerControl,
   isAutoReviewCheckerConfigured,
@@ -434,7 +435,10 @@ export function createRouter(deps: RouterDeps) {
       }),
     },
     models: {
-      list: authed.models.list.handler(async () => [...listPiCatalog(), scriptedCatalogEntry]),
+      list: authed.models.list.handler(async () => {
+        await ensureHostPi();
+        return [...listPiCatalog(), scriptedCatalogEntry];
+      }),
       credentials: authed.models.credentials.handler(async ({ context }) => {
         const rows = await deps.prisma.userModelCredential.findMany({
           where: { userId: context.actor.userId, workspaceId: context.actor.workspaceId },
@@ -635,22 +639,28 @@ export function createRouter(deps: RouterDeps) {
           if (!section) throw new IsolationError();
         }
         if (input.modelProvider && input.modelId) {
-          const credential = await deps.prisma.userModelCredential.findFirst({
-            where: {
-              userId: context.actor.userId,
-              workspaceId: context.actor.workspaceId,
-              provider: input.modelProvider,
-            },
-            orderBy: newestModelCredentialOrder,
-          });
-          if (!credential) {
+          // Host-pi providers are pre-authed by the deployment host; only
+          // other providers require a stored per-user credential.
+          const host = await ensureHostPi();
+          const hostAuthed = host?.providerIds.has(input.modelProvider) ?? false;
+          const credential = hostAuthed
+            ? null
+            : await deps.prisma.userModelCredential.findFirst({
+                where: {
+                  userId: context.actor.userId,
+                  workspaceId: context.actor.workspaceId,
+                  provider: input.modelProvider,
+                },
+                orderBy: newestModelCredentialOrder,
+              });
+          if (!credential && !hostAuthed) {
             throw new ORPCError("BAD_REQUEST", { message: "Connect that model provider first" });
           }
           const knownModels = [...listPiCatalog(), scriptedCatalogEntry];
           const inCatalog = knownModels.some(
             (item) => item.provider === input.modelProvider && item.id === input.modelId,
           );
-          if (!inCatalog && credential.defaultModel !== input.modelId) {
+          if (!inCatalog && credential?.defaultModel !== input.modelId) {
             throw new ORPCError("BAD_REQUEST", { message: "Unknown model for that provider" });
           }
         }
@@ -3164,13 +3174,14 @@ async function loadAutoReviewSettings(deps: RouterDeps, actor: Actor) {
 }
 
 async function meDto(deps: RouterDeps, actor: Actor): Promise<Me> {
-  const [user, cred, settings] = await Promise.all([
+  const [user, cred, settings, host] = await Promise.all([
     deps.prisma.user.findUniqueOrThrow({ where: { id: actor.userId } }),
     findDefaultModelCredential(deps.prisma, actor),
     deps.prisma.deploymentSettings.findUnique({ where: { id: "default" } }),
+    ensureHostPi(),
   ]);
   const hasDeployment = Boolean(
-    settings?.deploymentModelCredentialCipher || deps.env.deploymentModelKey,
+    settings?.deploymentModelCredentialCipher || deps.env.deploymentModelKey || host?.defaultModel,
   );
   return {
     userId: actor.userId,
@@ -3179,8 +3190,16 @@ async function meDto(deps: RouterDeps, actor: Actor): Promise<Me> {
     workspaceId: actor.workspaceId,
     isDeploymentOwner: actor.isDeploymentOwner,
     needsModel: !cred && !hasDeployment,
-    defaultProvider: cred?.provider ?? settings?.defaultModelProvider ?? deps.env.defaultProvider,
-    defaultModel: cred?.defaultModel ?? settings?.defaultModelId ?? deps.env.defaultModel,
+    defaultProvider:
+      cred?.provider ??
+      settings?.defaultModelProvider ??
+      host?.defaultModel?.provider ??
+      deps.env.defaultProvider,
+    defaultModel:
+      cred?.defaultModel ??
+      settings?.defaultModelId ??
+      host?.defaultModel?.id ??
+      deps.env.defaultModel,
     computerHost: computerHostFor(settings?.computerHost, deps.env.sandboxProvider),
     canChooseHostComputer: actor.isDeploymentOwner && deps.env.sandboxProvider === "docker",
     sandboxProvider: deps.env.sandboxProvider,

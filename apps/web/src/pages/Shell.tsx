@@ -4863,6 +4863,20 @@ function BotSettings({
       connectedOptions.push(option);
     }
   }
+  // Host-pi models are authenticated by the deployment host and selectable
+  // without a stored credential.
+  for (const entry of catalog) {
+    if (!entry.hostAuthed || entry.placeholder) continue;
+    const key = modelOptionKey(entry.provider, entry.id);
+    if (seenOptions.has(key)) continue;
+    seenOptions.add(key);
+    connectedOptions.push({
+      key,
+      provider: entry.provider,
+      modelId: entry.id,
+      label: `${entry.providerName ?? entry.provider} · ${entry.label}`,
+    });
+  }
 
   const effectiveProvider = modelKey
     ? parseModelOptionKey(modelKey)?.provider

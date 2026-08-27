@@ -20,6 +20,7 @@ import type {
 import { isToolPauseResult } from "./approval-effect.js";
 import { builtinAgentTools, DELEGATION_TOOL_NAMES } from "./builtin-tools.js";
 import { PiRuntimeCredentialStore, toOAuthCredential } from "./pi-credentials.js";
+import { ensureHostPi, hostPi } from "./pi-host-models.js";
 import { registerLocalProvider } from "./pi-local-provider.js";
 import {
   OPENAI_COMPATIBLE_PROVIDER_ID,
@@ -107,6 +108,8 @@ export class PiAgentRuntime implements AgentRuntime {
 
     const work = (async () => {
       try {
+        // Host pi mode must be resolved before any model lookup below.
+        await ensureHostPi();
         const provider =
           request.model.provider === "scripted" ? "openrouter" : request.model.provider;
         const envDefaultModel = process.env.PI_DEFAULT_MODEL?.trim();
@@ -136,12 +139,16 @@ export class PiAgentRuntime implements AgentRuntime {
 
         const apiKey = request.model.oauth
           ? undefined
-          : request.model.provider === OPENAI_COMPATIBLE_PROVIDER_ID
-            ? request.model.apiKey || "local"
-            : // Only OpenRouter may fall back to the OpenRouter env key. Handing it to
-              // another provider would ship our key to a vendor it was not issued for.
-              (request.model.apiKey ??
-              (provider === "openrouter" ? process.env.OPENROUTER_API_KEY : undefined));
+          : hostPi()
+            ? // Host pi mode: an undefined key lets the host registry resolve
+              // auth.json / env credentials itself (including OAuth refresh).
+              (request.model.apiKey ?? undefined)
+            : request.model.provider === OPENAI_COMPATIBLE_PROVIDER_ID
+              ? request.model.apiKey || "local"
+              : // Only OpenRouter may fall back to the OpenRouter env key. Handing it to
+                // another provider would ship our key to a vendor it was not issued for.
+                (request.model.apiKey ??
+                (provider === "openrouter" ? process.env.OPENROUTER_API_KEY : undefined));
         const toolDefs = request.tools.length ? request.tools : builtinAgentTools;
         const nestedAgents = new Set<Agent>();
         const host: ToolHost = {
@@ -323,6 +330,13 @@ export function modelsForRequest(
   request: Pick<AgentRunRequest, "model">,
   provider: string,
 ): Models {
+  // Host pi mode: one registry (builtins + allowlisted extensions +
+  // models.json + auth.json) is the source of truth for every provider, so
+  // DB-credential registries would only diverge from it. Run-scoped OAuth from
+  // a lingering DB credential is intentionally ignored here; the host registry
+  // resolves its own credentials when the request carries no API key.
+  const host = hostPi();
+  if (host) return host.models;
   const oauth = request.model.oauth;
   if (oauth) {
     const persist = oauth.persist;
