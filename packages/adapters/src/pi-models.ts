@@ -1,6 +1,7 @@
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import type { ModelOAuthSignInMode, ThinkingLevel } from "@rakazo/contracts";
+import { type HostPi, hostPi } from "./pi-host-models.js";
 import { LOCAL_PROVIDER_ID, registerLocalProvider } from "./pi-local-provider.js";
 import { SUBSCRIPTION_SIGN_IN_PROVIDERS } from "./pi-oauth.js";
 import {
@@ -25,11 +26,31 @@ export type PiCatalogEntry = {
   reasoning?: boolean;
   thinkingLevels?: ThinkingLevel[];
   placeholder?: boolean;
+  hostAuthed?: boolean;
 };
 
 export function listPiCatalog(): PiCatalogEntry[] {
+  // Host pi mode replaces the catalog wholesale: pi (builtins + allowlisted
+  // extensions + models.json + enabledModels scoping) is the source of truth.
+  const host = hostPi();
+  if (host) return hostCatalogEntries(host);
   cachedCatalog ??= buildPiCatalog();
   return cachedCatalog;
+}
+
+function hostCatalogEntries(host: HostPi): PiCatalogEntry[] {
+  return host.catalog.map((model) => ({
+    provider: model.provider,
+    providerName: model.providerName,
+    id: model.id,
+    label: model.label,
+    billing: "Signed in on this server's pi CLI. Managed by the deployment owner.",
+    auth: "api-key" as const,
+    subscription: false,
+    reasoning: model.reasoning,
+    thinkingLevels: model.thinkingLevels,
+    hostAuthed: true,
+  }));
 }
 
 let cachedCatalog: PiCatalogEntry[] | undefined;

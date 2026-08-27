@@ -135,6 +135,7 @@ import {
   modelAcceptsImageInput,
 } from "./model-vision.js";
 import { toOAuthCredential } from "./pi-credentials.js";
+import { ensureHostPi } from "./pi-host-models.js";
 import {
   parseModelSecret,
   resolveModelAuth,
@@ -322,19 +323,26 @@ export function createRunExecutor(deps: ExecutorDeps) {
       ]);
       // Keep provider/model/credential as one unit — never pair an override
       // provider with a workspace or deployment secret from another provider.
-      const useOverride = Boolean(hasOverride && overrideCredential);
+      // Host-pi providers are pre-authed by the host registry, so an override
+      // to one needs no stored credential.
+      const host = await ensureHostPi();
+      const useOverride = Boolean(
+        hasOverride && (overrideCredential || host?.providerIds.has(override!.modelProvider!)),
+      );
       const credential = useOverride ? overrideCredential : defaultCredential;
       const deployment = deps.deploymentModelKey ? resolveDeploymentModel() : null;
       const provider =
         (useOverride ? override!.modelProvider : null) ??
         credential?.provider ??
         settings?.defaultModelProvider ??
+        host?.defaultModel?.provider ??
         deployment?.provider ??
         "scripted";
       const id =
         (useOverride ? override!.modelId : null) ??
         credential?.defaultModel ??
         settings?.defaultModelId ??
+        host?.defaultModel?.id ??
         deployment?.model ??
         "scripted";
       // The key is resolved for the provider that won above, not before it is known.
@@ -629,9 +637,15 @@ export function createRunExecutor(deps: ExecutorDeps) {
             ? await findModelCredential(deps.prisma, run, bot.modelProvider)
             : null;
         // Keep provider/model/credential as one unit — never use the workspace
-        // default secret for a different override provider.
-        const useModelOverride = Boolean(hasModelOverride && overrideCredential);
-        const credential = useModelOverride ? overrideCredential! : defaultCredential;
+        // default secret for a different override provider. Host-pi providers
+        // are pre-authed by the host registry and need no stored credential.
+        const hostModels = await ensureHostPi();
+        const useModelOverride = Boolean(
+          hasModelOverride &&
+            (overrideCredential ||
+              (bot.modelProvider && hostModels?.providerIds.has(bot.modelProvider))),
+        );
+        const credential = useModelOverride ? overrideCredential : defaultCredential;
         runAbortController = new AbortController();
         if (!leaseValid) runAbortController.abort();
         const composioRows = storedConnections.filter(
@@ -765,12 +779,14 @@ export function createRunExecutor(deps: ExecutorDeps) {
           (useModelOverride ? bot.modelProvider : null) ??
           credential?.provider ??
           settings?.defaultModelProvider ??
+          hostModels?.defaultModel?.provider ??
           runDeployment?.provider ??
           "scripted";
         const runModelId =
           (useModelOverride ? bot.modelId : null) ??
           credential?.defaultModel ??
           settings?.defaultModelId ??
+          hostModels?.defaultModel?.id ??
           runDeployment?.model ??
           "scripted";
         const resolved = await resolveModelKey(

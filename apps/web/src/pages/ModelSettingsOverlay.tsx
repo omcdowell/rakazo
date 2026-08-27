@@ -353,7 +353,9 @@ export function ModelSettingsOverlay({ onClose }: { onClose: () => void }) {
             <div className="rk-scroll mt-3 max-h-[240px] overflow-y-auto rounded-[13px] border border-[#26262A] md:min-h-0 md:max-h-none md:flex-1">
               {filteredGroups.length ? (
                 filteredGroups.map((group) => {
-                  const connected = credentials.some((entry) => entry.provider === group.id);
+                  const connected =
+                    credentials.some((entry) => entry.provider === group.id) ||
+                    Boolean(group.entries[0]?.hostAuthed);
                   return (
                     <button
                       key={group.id}
@@ -392,7 +394,16 @@ export function ModelSettingsOverlay({ onClose }: { onClose: () => void }) {
           <div ref={detailScrollRef} className="rk-scroll min-h-0 min-w-0 flex-1 overflow-y-auto">
             {error ? <p className="mb-4 text-sm text-[#C94244]">{error}</p> : null}
             {notice ? <p className="mb-4 text-sm text-[#4ECB71]">{notice}</p> : null}
-            {selected ? (
+            {selected?.hostAuthed ? (
+              <div className="text-[13.5px] leading-[1.6] text-[#85858A]">
+                <p className="text-[15px] text-[#ECECEE]">
+                  {selected.providerName ?? selected.provider}
+                </p>
+                <p className="mt-2">
+                  <Trans>Signed in on this server’s pi CLI. Pick these models per bot.</Trans>
+                </p>
+              </div>
+            ) : selected ? (
               <>
                 <div className="block text-[13.5px] text-[#85858A]">
                   {isOpenAiCompatible ? (
