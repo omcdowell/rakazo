@@ -212,7 +212,8 @@ export function createRepos(prisma: PrismaClient) {
       }
       let modelProvider = input.modelProvider ?? null;
       let modelId = input.modelId ?? null;
-      let thinkingLevel = input.thinkingLevel ?? null;
+      let thinkingLevel =
+        input.thinkingLevel ?? process.env.PI_DEFAULT_THINKING_LEVEL?.trim() ?? null;
       if (input.parentBotId) {
         const parent = await prisma.bot.findFirst({
           where: {

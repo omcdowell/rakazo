@@ -134,6 +134,12 @@ describe("Pi agent thinking level", () => {
     expect(levels.every((level) => level !== "off")).toBe(true);
   });
 
+  it("honors PI_DEFAULT_THINKING_LEVEL when a bot has no override", async () => {
+    vi.stubEnv("PI_DEFAULT_THINKING_LEVEL", " high ");
+    const levels = await runWithModel("reasoning-model");
+    expect(levels).toEqual(["high", "high"]);
+  });
+
   it("honors a per-bot thinking level on reasoning models", async () => {
     const levels = await runWithModel("grok-4.6", "xai", new AbortController().signal, "high");
     expect(levels).toEqual(["high", "high"]);
