@@ -59,6 +59,17 @@ describe("LocalAgentHomeStore path containment", () => {
     );
   });
 
+  it("rejects oversized export files before loading their contents", async () => {
+    const { store, home } = await fixture();
+    await writeFile(path.join(home, "large.txt"), "12345");
+
+    await expect(async () => {
+      for await (const file of store.exportHome("bot-1", context, { maxFileBytes: 4 })) {
+        void file;
+      }
+    }).rejects.toThrow(/exceeds 4 bytes/);
+  });
+
   it("allows symlinks whose resolved target stays inside the bot home", async () => {
     const { store, home } = await fixture();
     await writeFile(path.join(home, "target.txt"), "before");

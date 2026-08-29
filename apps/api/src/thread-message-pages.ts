@@ -61,11 +61,28 @@ export async function loadAllMessages(
   prisma: PrismaClient,
   threadId: string,
   pageSize: number,
+  options?: { maxMessages?: number; maxSerializedBytes?: number },
 ): Promise<ThreadMessage[]> {
+  if (options?.maxMessages !== undefined) {
+    const count = await prisma.message.count({ where: { threadId } });
+    if (count > options.maxMessages) {
+      throw new Error(`thread history exceeds ${options.maxMessages} messages`);
+    }
+  }
+
   const pages: ThreadMessage[][] = [];
   let before: number | undefined;
+  let serializedBytes = 0;
   do {
     const page = await loadMessagePage(prisma, threadId, before, pageSize);
+    if (options?.maxSerializedBytes !== undefined) {
+      for (const message of page.messages) {
+        serializedBytes += Buffer.byteLength(JSON.stringify(message), "utf8");
+        if (serializedBytes > options.maxSerializedBytes) {
+          throw new Error(`thread history exceeds ${options.maxSerializedBytes} bytes`);
+        }
+      }
+    }
     pages.push(page.messages);
     before = page.olderCursor ?? undefined;
   } while (before !== undefined);

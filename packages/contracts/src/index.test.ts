@@ -6,6 +6,10 @@ import {
   BOT_TITLE_MAX_LENGTH,
   CreateBotInput,
   CreateGroupInput,
+  EXPORT_MAX_FILE_BYTES,
+  EXPORT_MAX_FILE_COUNT,
+  EXPORT_MAX_MESSAGE_COUNT,
+  EXPORT_MAX_TOTAL_BYTES,
   McpServerConfigInput,
   MessageBlock,
   ModelOAuthBeginSchema,
@@ -119,6 +123,12 @@ describe("contracts", () => {
     expect(ProductEventType.options).toContain("thread.cleared");
     expect(ProductEventType.options).toContain("thread.subagent");
     expect(ProductEventType.options).toContain("bot.spawned");
+  });
+
+  it("keeps JSON bot export limits inside a bounded payload", () => {
+    expect(EXPORT_MAX_FILE_BYTES).toBeLessThanOrEqual(EXPORT_MAX_TOTAL_BYTES);
+    expect(EXPORT_MAX_FILE_COUNT).toBeGreaterThan(0);
+    expect(EXPORT_MAX_MESSAGE_COUNT).toBeGreaterThan(0);
   });
 
   it("accepts bot-to-bot runs in thread snapshots and activity rows", () => {

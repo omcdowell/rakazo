@@ -1,5 +1,5 @@
 import { RPCHandler } from "@orpc/server/fetch";
-import type { Actor } from "@rakazo/contracts";
+import { type Actor, EXPORT_MAX_MESSAGE_COUNT } from "@rakazo/contracts";
 import type { PrismaClient } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
 import { createRouter, type RouterDeps } from "./router.js";
@@ -475,5 +475,76 @@ describe("computer screen url", () => {
     expect(response.status).toBe(500);
     expect(updateMany).not.toHaveBeenCalled();
     logError.mockRestore();
+  });
+});
+
+describe("export.bot", () => {
+  const actor = {
+    workspaceId: "workspace-1",
+    userId: "user-1",
+    email: "user@rakazo.test",
+    isDeploymentOwner: true,
+  } satisfies Actor;
+
+  function exportHandler(prisma: PrismaClient, home: RouterDeps["home"]) {
+    const deps = {
+      prisma,
+      home,
+      env: {
+        defaultProvider: "fake",
+        defaultModel: "fake-model",
+        webOrigin: "http://127.0.0.1:5173",
+        screenProxySecret: "fake-test-secret",
+        sandboxProvider: "fake",
+      },
+      dataDir: "/tmp/rakazo-router-test",
+    } as unknown as RouterDeps;
+    return new RPCHandler(createRouter(deps));
+  }
+
+  it("returns 413 instead of buffering an oversized thread history", async () => {
+    const count = vi.fn(async () => EXPORT_MAX_MESSAGE_COUNT + 1);
+    const findMany = vi.fn();
+    const prisma = {
+      bot: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: "bot-1",
+          name: "Chief",
+          title: "",
+          description: "",
+          instructions: "",
+          thread: { id: "thread-1" },
+          computer: { homeKey: "home-1" },
+        }),
+      },
+      memoryDocument: { findMany: vi.fn(async () => []) },
+      routine: { findMany: vi.fn(async () => []) },
+      message: { count, findMany },
+    } as unknown as PrismaClient;
+    const home = {
+      async *exportHome() {},
+    } as unknown as RouterDeps["home"];
+    const handler = exportHandler(prisma, home);
+
+    const { matched, response } = await handler.handle(
+      new Request("http://127.0.0.1/rpc/export/bot", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: { botId: "bot-1" } }),
+      }),
+      { prefix: "/rpc", context: { actor } },
+    );
+
+    expect(matched).toBe(true);
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({
+      json: expect.objectContaining({
+        defined: false,
+        code: "PAYLOAD_TOO_LARGE",
+        message: "Export exceeds the message count limit",
+      }),
+    });
+    expect(count).toHaveBeenCalledWith({ where: { threadId: "thread-1" } });
+    expect(findMany).not.toHaveBeenCalled();
   });
 });

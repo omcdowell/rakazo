@@ -866,6 +866,11 @@ export const AppBootstrapSchema = z.object({
 });
 export type AppBootstrap = z.infer<typeof AppBootstrapSchema>;
 
+export const EXPORT_MAX_TOTAL_BYTES = 32 * 1024 * 1024;
+export const EXPORT_MAX_FILE_COUNT = 10_000;
+export const EXPORT_MAX_FILE_BYTES = 8 * 1024 * 1024;
+export const EXPORT_MAX_MESSAGE_COUNT = 50_000;
+
 export const ExportManifestSchema = z.object({
   version: z.literal(1),
   exportedAt: z.string(),

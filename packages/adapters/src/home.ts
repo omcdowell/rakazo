@@ -92,12 +92,16 @@ export class LocalAgentHomeStore implements AgentHomeStore {
     await this.checkout(botId, dest, context);
   }
 
-  async *exportHome(botId: string, _context: AdapterContext): AsyncIterable<PortableFile> {
+  async *exportHome(
+    botId: string,
+    _context: AdapterContext,
+    options?: { maxFileBytes?: number },
+  ): AsyncIterable<PortableFile> {
     await this.waitForBotWrite(botId);
     await this.recoverInterruptedCommit(botId);
     const dir = this.botDir(botId);
     await mkdir(dir, { recursive: true });
-    yield* walkFiles(dir, dir);
+    yield* walkFiles(dir, dir, "", new Set(), options?.maxFileBytes);
   }
 
   async readFile(
@@ -306,6 +310,7 @@ async function* walkFiles(
   current: string,
   outputPath = "",
   visited = new Set<string>(),
+  maxFileBytes?: number,
 ): AsyncGenerator<PortableFile> {
   const resolvedCurrent = await containedTarget(root, current).catch(() => null);
   if (!resolvedCurrent || visited.has(resolvedCurrent)) return;
@@ -319,8 +324,11 @@ async function* walkFiles(
     const info = await stat(full);
     const portablePath = path.posix.join(outputPath, entry.name);
     if (info.isDirectory()) {
-      yield* walkFiles(root, full, portablePath, visited);
+      yield* walkFiles(root, full, portablePath, visited, maxFileBytes);
     } else if (info.isFile()) {
+      if (maxFileBytes !== undefined && info.size > maxFileBytes) {
+        throw new Error(`agent home file exceeds ${maxFileBytes} bytes`);
+      }
       const content = await readFile(full);
       yield {
         path: portablePath,

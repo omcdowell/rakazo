@@ -5074,7 +5074,11 @@ function BotSettings({
         </button>
         <button
           type="button"
-          onClick={() => void onExport()}
+          onClick={() => {
+            void onExport().catch((err) =>
+              setError(err instanceof Error ? err.message : t`Could not export`),
+            );
+          }}
           className="text-[14px] text-[#85858A]"
         >
           <Trans>Export</Trans>

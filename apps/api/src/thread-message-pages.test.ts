@@ -120,4 +120,35 @@ describe("thread message pages", () => {
     expect(messages.map((message) => message.seq)).toEqual([0, 1, 2, 3, 4]);
     expect(findMany.mock.calls.map(([query]) => query.where.seq?.lt)).toEqual([undefined, 3, 1]);
   });
+
+  it("rejects history that exceeds the export message cap before paging it in", async () => {
+    const count = vi.fn(async () => 3);
+    const findMany = vi.fn();
+    const prisma = { message: { count, findMany } } as unknown as PrismaClient;
+
+    await expect(loadAllMessages(prisma, "thread-1", 2, { maxMessages: 2 })).rejects.toThrow(
+      /exceeds 2 messages/,
+    );
+    expect(count).toHaveBeenCalledWith({ where: { threadId: "thread-1" } });
+    expect(findMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects history whose serialized size exceeds the export byte cap", async () => {
+    const findMany = vi.fn().mockResolvedValueOnce([
+      {
+        id: "message-0",
+        threadId: "thread-1",
+        seq: 0,
+        role: "bot",
+        blocks: [{ kind: "text", text: "hello" }],
+        runId: null,
+        createdAt: new Date("2026-08-16T00:00:00.000Z"),
+      },
+    ]);
+    const prisma = { message: { findMany } } as unknown as PrismaClient;
+
+    await expect(
+      loadAllMessages(prisma, "thread-1", 2, { maxSerializedBytes: 10 }),
+    ).rejects.toThrow(/exceeds 10 bytes/);
+  });
 });

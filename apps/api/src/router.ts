@@ -110,6 +110,7 @@ import {
   resolveBusyBotName,
   toComputerStatus,
 } from "./computer-status.js";
+import { buildBotExportManifest, ExportTooLargeError } from "./export-bot.js";
 import { buildMcpUpdateMaterial } from "./mcp-material.js";
 import { chooseFocus, markAppConnected, startOnboarding } from "./onboarding.js";
 import { listWorkspaceRuns } from "./runs.js";
@@ -124,7 +125,7 @@ import {
   UpdaterProxyError,
 } from "./server-update.js";
 import { assertTeachingSendAllowed, createTaughtSkillsService } from "./taught-skills.js";
-import { loadAllMessages, loadMessagePage } from "./thread-message-pages.js";
+import { loadMessagePage } from "./thread-message-pages.js";
 import {
   resolveThreadTarget,
   sendThreadMessage,
@@ -145,7 +146,6 @@ import {
 
 const MAX_COMPUTER_TEXT_FILE_BYTES = 2 * 1024 * 1024;
 const THREAD_MESSAGE_PAGE_SIZE = 100;
-const EXPORT_MESSAGE_PAGE_SIZE = 500;
 
 async function reconcilePendingConnections(
   prisma: PrismaClient,
@@ -2975,52 +2975,29 @@ export function createRouter(deps: RouterDeps) {
       bot: authed.export.bot.handler(async ({ context, input }) => {
         const bot = await repos.getBot(context.actor, input.botId);
         if (!bot.thread || !bot.computer) throw new IsolationError();
-        const homeKey = bot.computer.homeKey;
-        const exportContext = {
-          operationId: "export",
-          traceId: "export",
-          workspaceId: context.actor.workspaceId,
-          userId: context.actor.userId,
-          signal: new AbortController().signal,
-        };
-        const [memory, routines, files, history] = await Promise.all([
-          deps.prisma.memoryDocument.findMany({
-            where: { botId: input.botId, workspaceId: context.actor.workspaceId },
-          }),
-          deps.prisma.routine.findMany({
-            where: { botId: input.botId, workspaceId: context.actor.workspaceId },
-          }),
-          (async () => {
-            const exported: Array<{ path: string; content: string }> = [];
-            for await (const file of deps.home.exportHome(homeKey, exportContext)) {
-              exported.push({
-                path: file.path,
-                content: new TextDecoder().decode(file.content),
-              });
-            }
-            return exported;
-          })(),
-          loadAllMessages(deps.prisma, bot.thread.id, EXPORT_MESSAGE_PAGE_SIZE),
-        ]);
-        return {
-          version: 1 as const,
-          exportedAt: new Date().toISOString(),
-          bot: {
-            name: bot.name,
-            title: bot.title,
-            description: bot.description,
-            instructions: bot.instructions,
-          },
-          memory: memory.map((m) => ({ path: m.path, content: m.content })),
-          routines: routines.map((r) => ({
-            name: r.name,
-            prompt: r.prompt,
-            crons: r.crons,
-            timezone: r.timezone,
-          })),
-          files,
-          history,
-        };
+        try {
+          return await buildBotExportManifest({
+            bot,
+            botId: input.botId,
+            threadId: bot.thread.id,
+            workspaceId: context.actor.workspaceId,
+            homeKey: bot.computer.homeKey,
+            home: deps.home,
+            prisma: deps.prisma,
+            exportContext: {
+              operationId: "export",
+              traceId: "export",
+              workspaceId: context.actor.workspaceId,
+              userId: context.actor.userId,
+              signal: new AbortController().signal,
+            },
+          });
+        } catch (error) {
+          if (error instanceof ExportTooLargeError) {
+            throw new ORPCError("PAYLOAD_TOO_LARGE", { message: error.message });
+          }
+          throw error;
+        }
       }),
     },
     notifications: {
